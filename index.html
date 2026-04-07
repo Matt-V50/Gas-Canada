@@ -19,19 +19,18 @@
       --card-bg: #fff;
       --card-shadow: 0 1px 4px rgba(0,0,0,0.08);
     }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #121212;
-        --bg2: #1e1e1e;
-        --fg: #e0e0e0;
-        --fg2: #999;
-        --border: #333;
-        --accent: #5a8ae0;
-        --accent-hover: #7aa4f0;
-        --card-bg: #1e1e1e;
-        --card-shadow: 0 1px 4px rgba(0,0,0,0.3);
-      }
+    :root.dark {
+      --bg: #121212;
+      --bg2: #1e1e1e;
+      --fg: #e0e0e0;
+      --fg2: #999;
+      --border: #333;
+      --accent: #5a8ae0;
+      --accent-hover: #7aa4f0;
+      --card-bg: #1e1e1e;
+      --card-shadow: 0 1px 4px rgba(0,0,0,0.3);
     }
+    
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -60,6 +59,16 @@
     .header .sub {
       font-size: 13px;
       color: var(--fg2);
+    }
+
+    #theme-toggle {
+      margin-left: auto;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 16px;
+      cursor: pointer;
     }
 
     .container {
@@ -207,6 +216,7 @@
   <div class="container">
     <h1>⛽ Waterloo Gas Prices</h1>
     <span class="sub">Data from GasBuddy</span>
+    <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>  <!-- 加这行 -->
   </div>
 </div>
 
@@ -261,6 +271,25 @@
 </div>
 
 <script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.classList.toggle('dark');
+  const isDark = html.classList.contains('dark');
+  document.getElementById('theme-toggle').textContent = isDark ? '☀️' : '🌙';
+  localStorage.setItem('theme', isDark ? 'dark' : 'light');
+}
+
+// 页面加载时读取保存的主题
+(function() {
+  const saved = localStorage.getItem('theme');
+  if (saved === 'dark') {
+    document.documentElement.classList.add('dark');
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('theme-toggle').textContent = '☀️';
+    });
+  }
+})();
+
 (function() {
   // ═══════════════════════════════════════════════════════════
   //  CONFIG — Only two things to fill in:
