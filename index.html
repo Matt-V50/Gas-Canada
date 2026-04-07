@@ -276,7 +276,6 @@
   //  That's it. Each station's gid is read from the STATION sheet.
   // ═══════════════════════════════════════════════════════════
   const SHEET_BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRNWUMa0BdOw0lwFw1oeHrcwKwC7QBO1W_5dez3Zj5IgXGj_YONJgV4UVppatFEOQDTd6sjXaW78EbA/pub?output=csv';
-  const STATION_GID = '2058261967';  // ← gid of your STATION tab
   // ═══════════════════════════════════════════════════════════
 
   const GRADE_LABELS = {
@@ -301,13 +300,13 @@
 
   // Helper: build CSV URL from gid
   function csvUrl(gid) {
-    return SHEET_BASE + '?gid=' + gid + '&single=true&output=csv';
+    return SHEET_BASE + '&gid=' + gid;
   }
 
   // ── Load all data ──
   function loadAllData() {
     // Step 1: load STATION tab to get all station IDs and their gids
-    Papa.parse(csvUrl(STATION_GID), {
+    Papa.parse(SHEET_BASE, {
       download: true,
       header: true,
       complete: function(results) {
