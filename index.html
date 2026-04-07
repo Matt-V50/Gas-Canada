@@ -277,6 +277,7 @@ function toggleTheme() {
   const isDark = html.classList.contains('dark');
   document.getElementById('theme-toggle').textContent = isDark ? '☀️' : '🌙';
   localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  if (typeof renderChart === 'function') renderChart();  // 加这行
 }
 
 // 页面加载时读取保存的主题
@@ -453,7 +454,7 @@ function toggleTheme() {
   }
 
   // ── Render Plotly chart ──
-  function renderChart() {
+  window.renderChart = function renderChart() {
     // Filter station IDs
     let ids = allStationIds;
     if (currentStation !== 'ALL') ids = ids.filter(s => s === currentStation);
