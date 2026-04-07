@@ -9,11 +9,13 @@ const charty = (function() {
     ];
 
     function getCurrentTheme() {
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            return 'dark';
-        }
         const html = document.documentElement;
-        if (html.classList.contains('dark') || html.getAttribute('data-theme') === 'dark') {
+        const body = document.body;
+        
+        if (html.classList.contains('dark') || 
+            body.classList.contains('dark') ||
+            html.getAttribute('data-theme') === 'dark' ||
+            body.getAttribute('data-theme') === 'dark') {
             return 'dark';
         }
         return 'light';
