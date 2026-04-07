@@ -447,7 +447,8 @@
       const filtered = cutoff ? rows.filter(r => r.timestamp >= cutoff) : rows;
       if (filtered.length === 0) return;
 
-      const label = meta.brand + ' — ' + meta.address;
+    //   const label = meta.brand + ' — ' + meta.address;
+      const label = meta.address;
       const color = palette[colorIdx % palette.length];
 
       currentGrades.forEach(grade => {
@@ -459,9 +460,9 @@
           ys.push(v);
           hovers.push(
             '<b>' + label + '</b><br>' +
-            GRADE_LABELS[grade] + ': ' + v.toFixed(1) + ' ¢/L<br>' +
-            r.timestamp.toLocaleDateString() + ' ' + r.timestamp.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) +
-            (r.by ? '<br><i>by ' + r.by + '</i>' : '')
+            GRADE_LABELS[grade] + ': ' + v.toFixed(1) + ' ¢/L'
+            // r.timestamp.toLocaleDateString() + ' ' + r.timestamp.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) +
+            // (r.by ? '<br><i>by ' + r.by + '</i>' : '')
           );
         });
         if (xs.length === 0) return;
