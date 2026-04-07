@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gas Price Chart - Waterloo</title>
+  <script src="https://cdn.plot.ly/plotly-3.3.0.min.js" charset="utf-8"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="./assets/js/charty.js"></script>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg2: #f5f5f5;
+      --fg: #1a1a1a;
+      --fg2: #555;
+      --border: #ddd;
+      --accent: #4878d0;
+      --accent-hover: #3a65b8;
+      --card-bg: #fff;
+      --card-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121212;
+        --bg2: #1e1e1e;
+        --fg: #e0e0e0;
+        --fg2: #999;
+        --border: #333;
+        --accent: #5a8ae0;
+        --accent-hover: #7aa4f0;
+        --card-bg: #1e1e1e;
+        --card-shadow: 0 1px 4px rgba(0,0,0,0.3);
+      }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Times New Roman', 'Georgia', serif;
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+    }
+
+    .header {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 0;
+      margin-bottom: 24px;
+    }
+    .header .container {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+    .header h1 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+    .header .sub {
+      font-size: 13px;
+      color: var(--fg2);
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* ── Filters ── */
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 20px;
+      align-items: flex-end;
+    }
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .filter-group .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--fg2);
+      font-family: Arial, sans-serif;
+    }
+
+    /* Button group */
+    .btn-group {
+      display: inline-flex;
+    }
+    .btn-group button {
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--fg);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-group button:first-child { border-radius: 4px 0 0 4px; }
+    .btn-group button:last-child { border-radius: 0 4px 4px 0; }
+    .btn-group button:not(:last-child) { border-right: none; }
+    .btn-group button:hover { background: var(--bg2); }
+    .btn-group button.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .btn-group button.active + button { border-left-color: var(--accent); }
+
+    /* Select */
+    select {
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      padding: 6px 28px 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--card-bg);
+      color: var(--fg);
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+    }
+    select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+    /* Checkboxes */
+    .checkbox-group {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .checkbox-group label {
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      color: var(--fg);
+    }
+    .checkbox-group input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    /* ── Chart ── */
+    #gas-chart {
+      width: 100%;
+      min-height: 480px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: var(--card-shadow);
+    }
+
+    /* ── Loading ── */
+    #loading-msg {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--fg2);
+      font-size: 14px;
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 40px;
+      padding: 16px 0;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--fg2);
+      text-align: center;
+      font-family: Arial, sans-serif;
+    }
+    .footer a { color: var(--accent); text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 600px) {
+      .filters { gap: 10px; }
+      .filter-group { width: 100%; }
+      select { width: 100%; }
+      #gas-chart { min-height: 350px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="container">
+    <h1>⛽ Waterloo Gas Prices</h1>
+    <span class="sub">Data from GasBuddy</span>
+  </div>
+</div>
+
+<div class="container">
+  <div id="loading-msg">
+    <span class="spinner"></span>Loading gas price data...
+  </div>
+
+  <div id="gas-app" style="display:none;">
+    <div class="filters">
+      <div class="filter-group">
+        <span class="label">Time Range</span>
+        <div class="btn-group" id="time-range-btns">
+          <button data-days="7" class="active">7D</button>
+          <button data-days="30">1M</button>
+          <button data-days="90">3M</button>
+          <button data-days="0">All</button>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <span class="label">Station</span>
+        <select id="station-select"></select>
+      </div>
+
+      <div class="filter-group">
+        <span class="label">Brand</span>
+        <select id="brand-select">
+          <option value="ALL">All Brands</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <span class="label">Fuel Grade</span>
+        <div class="checkbox-group" id="grade-checks">
+          <label><input type="checkbox" value="regular_price" checked> Regular</label>
+          <label><input type="checkbox" value="midgrade_price"> Mid-grade</label>
+          <label><input type="checkbox" value="premium_price"> Premium</label>
+        </div>
+      </div>
+    </div>
+
+    <div id="gas-chart"></div>
+  </div>
+</div>
+
+<div class="footer">
+  <div class="container">
+    Data sourced from <a href="https://www.gasbuddy.com" target="_blank">GasBuddy</a> ·
+    Updated on each push
+  </div>
+</div>
+
+<script>
+(function() {
+  // ═══════════════════════════════════════════════════════════
+  //  CONFIG — Only two things to fill in:
+  //
+  //  1. SHEET_BASE: Your published Google Sheet base URL
+  //     (File → Share → Publish to web → entire document → get link,
+  //      then keep everything before the "?" )
+  //
+  //  2. STATION_GID: The gid of your STATION tab
+  //     (click STATION tab → look at URL → #gid=xxxxx)
+  //     First tab is usually 0.
+  //
+  //  That's it. Each station's gid is read from the STATION sheet.
+  // ═══════════════════════════════════════════════════════════
+  const SHEET_BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRNWUMa0BdOw0lwFw1oeHrcwKwC7QBO1W_5dez3Zj5IgXGj_YONJgV4UVppatFEOQDTd6sjXaW78EbA/pub?output=csv';
+  const STATION_GID = '2058261967';  // ← gid of your STATION tab
+  // ═══════════════════════════════════════════════════════════
+
+  const GRADE_LABELS = {
+    'regular_price': 'Regular',
+    'midgrade_price': 'Mid-grade',
+    'premium_price': 'Premium'
+  };
+  const GRADE_DASH = {
+    'regular_price': 'solid',
+    'midgrade_price': 'dash',
+    'premium_price': 'dot'
+  };
+
+  // State
+  let stationMeta = {};
+  let stationData = {};
+  let allStationIds = [];
+  let currentDays = 7;
+  let currentBrand = 'ALL';
+  let currentStation = 'ALL';
+  let currentGrades = ['regular_price'];
+
+  // Helper: build CSV URL from gid
+  function csvUrl(gid) {
+    return SHEET_BASE + '?gid=' + gid + '&single=true&output=csv';
+  }
+
+  // ── Load all data ──
+  function loadAllData() {
+    // Step 1: load STATION tab to get all station IDs and their gids
+    Papa.parse(csvUrl(STATION_GID), {
+      download: true,
+      header: true,
+      complete: function(results) {
+        results.data.forEach(row => {
+          if (!row.Station_ID || !row.Gid) return;
+          stationMeta[row.Station_ID] = {
+            brand: row.Brand || '',
+            address: row.Address || '',
+            url: row.Url || '',
+            gid: row.Gid.trim()
+          };
+        });
+        allStationIds = Object.keys(stationMeta);
+
+        let pending = allStationIds.length;
+        if (pending === 0) {
+          document.getElementById('loading-msg').textContent = 'No stations found in STATION sheet.';
+          return;
+        }
+
+        // Step 2: load each station's price tab using its gid
+        allStationIds.forEach(sid => {
+          const gid = stationMeta[sid].gid;
+          Papa.parse(csvUrl(gid), {
+            download: true,
+            header: true,
+            complete: function(res) {
+              stationData[sid] = res.data
+                .filter(r => r.timestamp)
+                .map(r => ({
+                  timestamp: new Date(r.timestamp),
+                  brand: r.brand || stationMeta[sid]?.brand || '',
+                  station: r.station || '',
+                  regular_price: parseFloat(r.regular_price) || null,
+                  midgrade_price: parseFloat(r.midgrade_price) || null,
+                  premium_price: parseFloat(r.premium_price) || null,
+                  by: r.by || '',
+                  report_time: r.report_time || ''
+                }))
+                .sort((a, b) => a.timestamp - b.timestamp);
+              pending--;
+              if (pending === 0) onAllLoaded();
+            },
+            error: function() { pending--; if (pending === 0) onAllLoaded(); }
+          });
+        });
+      },
+      error: function() {
+        document.getElementById('loading-msg').textContent = 'Failed to load station data.';
+      }
+    });
+  }
+
+  // ── After all data loaded ──
+  function onAllLoaded() {
+    document.getElementById('loading-msg').style.display = 'none';
+    document.getElementById('gas-app').style.display = '';
+    buildFilters();
+    renderChart();
+  }
+
+  // ── Build filter dropdowns ──
+  function buildFilters() {
+    // Station select
+    const stationSel = document.getElementById('station-select');
+    stationSel.innerHTML = '<option value="ALL">All Stations</option>';
+    allStationIds.forEach(sid => {
+      const m = stationMeta[sid];
+      const opt = document.createElement('option');
+      opt.value = sid;
+      opt.textContent = m.brand + ' — ' + m.address;
+      stationSel.appendChild(opt);
+    });
+
+    // Brand select
+    const brands = [...new Set(allStationIds.map(s => stationMeta[s].brand))].filter(Boolean).sort();
+    const brandSel = document.getElementById('brand-select');
+    brands.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b;
+      opt.textContent = b;
+      brandSel.appendChild(opt);
+    });
+
+    // Events: time range
+    document.querySelectorAll('#time-range-btns button').forEach(btn => {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('#time-range-btns button').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        currentDays = parseInt(this.dataset.days);
+        renderChart();
+      });
+    });
+
+    // Events: station
+    stationSel.addEventListener('change', function() {
+      currentStation = this.value;
+      renderChart();
+    });
+
+    // Events: brand
+    brandSel.addEventListener('change', function() {
+      currentBrand = this.value;
+      renderChart();
+    });
+
+    // Events: grade checkboxes
+    document.querySelectorAll('#grade-checks input').forEach(cb => {
+      cb.addEventListener('change', function() {
+        currentGrades = Array.from(document.querySelectorAll('#grade-checks input:checked')).map(c => c.value);
+        if (currentGrades.length === 0) { this.checked = true; currentGrades = [this.value]; }
+        renderChart();
+      });
+    });
+  }
+
+  // ── Render Plotly chart ──
+  function renderChart() {
+    // Filter station IDs
+    let ids = allStationIds;
+    if (currentStation !== 'ALL') ids = ids.filter(s => s === currentStation);
+    if (currentBrand !== 'ALL') ids = ids.filter(s => stationMeta[s].brand === currentBrand);
+
+    // Time cutoff
+    const cutoff = currentDays > 0
+      ? new Date(Date.now() - currentDays * 86400000)
+      : null;
+
+    const isDark = charty.getCurrentTheme() === 'dark';
+    const layoutBase = charty.getThemedLayoutBase();
+    const palette = charty.palette;
+    let traces = [];
+    let colorIdx = 0;
+
+    ids.forEach(sid => {
+      const rows = stationData[sid] || [];
+      const meta = stationMeta[sid];
+      const filtered = cutoff ? rows.filter(r => r.timestamp >= cutoff) : rows;
+      if (filtered.length === 0) return;
+
+      const label = meta.brand + ' — ' + meta.address;
+      const color = palette[colorIdx % palette.length];
+
+      currentGrades.forEach(grade => {
+        const xs = [], ys = [], hovers = [];
+        filtered.forEach(r => {
+          const v = r[grade];
+          if (v === null || isNaN(v)) return;
+          xs.push(r.timestamp);
+          ys.push(v);
+          hovers.push(
+            '<b>' + label + '</b><br>' +
+            GRADE_LABELS[grade] + ': ' + v.toFixed(1) + ' ¢/L<br>' +
+            r.timestamp.toLocaleDateString() + ' ' + r.timestamp.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) +
+            (r.by ? '<br><i>by ' + r.by + '</i>' : '')
+          );
+        });
+        if (xs.length === 0) return;
+
+        const suffix = currentGrades.length > 1 ? ' (' + GRADE_LABELS[grade] + ')' : '';
+        traces.push({
+          x: xs, y: ys,
+          name: label + suffix,
+          type: 'scatter',
+          mode: 'lines+markers',
+          line: { color: color, width: 2, dash: GRADE_DASH[grade] },
+          marker: { color: color, size: 5, line: {color: isDark ? '#333' : '#fff', width: 1} },
+          hovertemplate: '%{customdata}<extra></extra>',
+          customdata: hovers
+        });
+      });
+      colorIdx++;
+    });
+
+    // Range label
+    const rangeMap = {7: 'Last 7 Days', 30: 'Last Month', 90: 'Last 3 Months', 0: 'All Time'};
+    const gradeLabel = currentGrades.map(g => GRADE_LABELS[g]).join(', ');
+
+    const layout = Object.assign({}, layoutBase, {
+      title: {
+        text: gradeLabel + ' — ' + (rangeMap[currentDays] || 'All Time'),
+        font: {size: 15, family: 'Times New Roman, serif', color: isDark ? '#e0e0e0' : '#000'},
+        x: 0.5
+      },
+      xaxis: Object.assign({}, layoutBase.xaxis, {
+        type: 'date',
+        tickformat: currentDays <= 7 ? '%b %d %H:%M' : '%b %d',
+        hoverformat: '%Y-%m-%d %H:%M'
+      }),
+      yaxis: Object.assign({}, layoutBase.yaxis, {
+        title: {text: 'Price (¢/L)', font: {size: 12}}
+      }),
+      legend: Object.assign({}, layoutBase.legend, {
+        orientation: 'h',
+        yanchor: 'top', y: -0.22,
+        xanchor: 'center', x: 0.5
+      }),
+      hovermode: 'x unified',
+      margin: {t: 50, b: 110, l: 60, r: 20}
+    });
+
+    if (traces.length === 0) {
+      Plotly.newPlot('gas-chart', [], Object.assign({}, layout, {
+        annotations: [{
+          text: 'No data for current filters',
+          showarrow: false, font: {size: 14, color: '#999'},
+          xref: 'paper', yref: 'paper', x: 0.5, y: 0.5
+        }]
+      }), {displayModeBar: false, responsive: true});
+    } else {
+      Plotly.newPlot('gas-chart', traces, layout, {displayModeBar: false, responsive: true});
+    }
+  }
+
+  // ── Theme change listener ──
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderChart());
+
+  // ── Go ──
+  loadAllData();
+})();
+</script>
+
+</body>
+</html>
