@@ -168,6 +168,73 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       box-shadow: var(--card-shadow);
+      position: relative;
+    }
+
+    /* ── Custom Hover Tooltip ── */
+    #custom-tooltip {
+      display: none;
+      position: absolute;
+      z-index: 1000;
+      pointer-events: none;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+      padding: 8px 12px;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      color: var(--fg);
+      max-width: 320px;
+      white-space: nowrap;
+    }
+    [data-theme="dark"] #custom-tooltip {
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+    #custom-tooltip .tt-date {
+      font-size: 11px;
+      color: var(--fg2);
+      margin-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 5px;
+    }
+    #custom-tooltip .tt-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 2px 0;
+      line-height: 1.5;
+    }
+    #custom-tooltip .tt-swatch {
+      width: 10px;
+      height: 3px;
+      border-radius: 1px;
+      flex-shrink: 0;
+    }
+    #custom-tooltip .tt-swatch.dash-solid { }
+    #custom-tooltip .tt-swatch.dash-dash {
+      background: repeating-linear-gradient(
+        90deg,
+        var(--swatch-color) 0px, var(--swatch-color) 4px,
+        transparent 4px, transparent 7px
+      ) !important;
+    }
+    #custom-tooltip .tt-swatch.dash-dot {
+      background: repeating-linear-gradient(
+        90deg,
+        var(--swatch-color) 0px, var(--swatch-color) 2px,
+        transparent 2px, transparent 5px
+      ) !important;
+    }
+    #custom-tooltip .tt-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #custom-tooltip .tt-val {
+      font-weight: 600;
+      margin-left: auto;
+      padding-left: 12px;
     }
 
     /* ── Loading ── */
@@ -260,7 +327,9 @@
       </div>
     </div>
 
-    <div id="gas-chart"></div>
+    <div id="gas-chart">
+      <div id="custom-tooltip"></div>
+    </div>
   </div>
 </div>
 
@@ -334,8 +403,11 @@ var toggleTheme = () => {
   let currentStation = 'ALL';
   let currentGrades = ['regular_price'];
 
-  // ── [FIX 1] Stable color map: station_id → palette index ──
+  // ── Stable color map: station_id → palette index ──
   let stationColorMap = {};
+
+  // ── Track current traces for custom hover ──
+  let currentTraces = [];
 
   function csvUrl(gid) {
     return SHEET_BASE + '&gid=' + gid;
@@ -357,7 +429,6 @@ var toggleTheme = () => {
         });
         allStationIds = Object.keys(stationMeta);
 
-        // [FIX 1] Assign a fixed color index to each station at load time
         allStationIds.forEach((sid, i) => {
           stationColorMap[sid] = i;
         });
@@ -459,13 +530,12 @@ var toggleTheme = () => {
     });
   }
 
-  // ── [FIX 5] Helper: compute midnight vertical lines for the visible range ──
+  // ── Helper: compute midnight vertical lines for the visible range ──
   function getMidnightShapes(cutoff, isDark) {
     const shapes = [];
     const now = new Date();
     const start = cutoff ? new Date(cutoff) : null;
 
-    // Find the earliest data point if no cutoff
     let earliest = now;
     if (!start) {
       allStationIds.forEach(sid => {
@@ -477,13 +547,10 @@ var toggleTheme = () => {
     }
 
     const from = start || earliest;
-    // Start from midnight of the 'from' date, then step day by day
     let d = new Date(from);
     d.setHours(0, 0, 0, 0);
     d.setDate(d.getDate() + 1);
 
-    // Helper: format as local "YYYY-MM-DD 00:00" so Plotly places it
-    // correctly on the axis (which uses local-time Date objects from the data)
     function localMidnightStr(date) {
       const y = date.getFullYear();
       const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -511,6 +578,140 @@ var toggleTheme = () => {
     return shapes;
   }
 
+  // ══════════════════════════════════════════════════════
+  // Custom hover tooltip — dynamically sorted by price
+  // ══════════════════════════════════════════════════════
+
+  /**
+   * For each trace, find the y-value closest to hoverX.
+   * Since data is step-like (price stays until next report),
+   * we use the last data point at or before hoverX.
+   */
+  function getTraceValueAtX(trace, hoverX) {
+    const hoverMs = hoverX.getTime();
+    let bestIdx = -1;
+    // trace.x are Date objects; find last point <= hoverX
+    for (let i = 0; i < trace.x.length; i++) {
+      const tMs = trace.x[i].getTime();
+      if (tMs <= hoverMs) {
+        bestIdx = i;
+      } else {
+        break;
+      }
+    }
+    // Also check if the next point is very close (within tolerance)
+    // to handle slight timing differences in the hovered x
+    if (bestIdx === -1) {
+      // hoverX is before all data for this trace — check if first point
+      // is within a small window (e.g. hoverdistance equivalent)
+      if (trace.x.length > 0) {
+        const diffMs = trace.x[0].getTime() - hoverMs;
+        // within 2 hours? show it
+        if (diffMs < 2 * 3600 * 1000) return { val: trace.y[0], idx: 0 };
+      }
+      return null;
+    }
+    return { val: trace.y[bestIdx], idx: bestIdx };
+  }
+
+  function formatTooltipDate(d) {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const mon = months[d.getMonth()];
+    const day = d.getDate();
+    const h = d.getHours();
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return mon + ' ' + day + ', ' + d.getFullYear() + '  ' + h12 + ':' + m + ' ' + ampm;
+  }
+
+  function showCustomTooltip(eventData) {
+    const tooltip = document.getElementById('custom-tooltip');
+    const chartEl = document.getElementById('gas-chart');
+    if (!eventData || !eventData.points || eventData.points.length === 0) {
+      tooltip.style.display = 'none';
+      return;
+    }
+
+    // Get the hovered x value (Date)
+    const hoverPoint = eventData.points[0];
+    const hoverX = new Date(hoverPoint.x);
+
+    // Gather values from ALL traces at this x position
+    const entries = [];
+    currentTraces.forEach((trace, traceIdx) => {
+      const result = getTraceValueAtX(trace, hoverX);
+      if (!result) return;
+      entries.push({
+        name: trace.name,
+        val: result.val,
+        color: trace.line.color,
+        dash: trace.line.dash || 'solid'
+      });
+    });
+
+    if (entries.length === 0) {
+      tooltip.style.display = 'none';
+      return;
+    }
+
+    // Sort by price: cheapest at bottom (ascending from top → descending price at top)
+    entries.sort((a, b) => b.val - a.val);
+
+    // Build HTML
+    let html = '<div class="tt-date">' + formatTooltipDate(hoverX) + '</div>';
+    entries.forEach(e => {
+      const dashClass = 'dash-' + e.dash;
+      html += '<div class="tt-row">' +
+        '<span class="tt-swatch ' + dashClass + '" style="background:' + e.color + '; --swatch-color:' + e.color + ';"></span>' +
+        '<span class="tt-name">' + e.name + '</span>' +
+        '<span class="tt-val">' + e.val.toFixed(1) + '</span>' +
+        '</div>';
+    });
+    tooltip.innerHTML = html;
+    tooltip.style.display = 'block';
+
+    // Position the tooltip near the mouse, inside the chart area
+    const chartRect = chartEl.getBoundingClientRect();
+    // eventData.event gives us the mouse event
+    const evt = eventData.event;
+    let mouseX, mouseY;
+    if (evt) {
+      mouseX = evt.clientX - chartRect.left;
+      mouseY = evt.clientY - chartRect.top;
+    } else {
+      // Fallback: use the first point's pixel coords
+      mouseX = hoverPoint.xaxis.d2p(hoverPoint.x) + hoverPoint.xaxis._offset;
+      mouseY = hoverPoint.yaxis.d2p(hoverPoint.y) + hoverPoint.yaxis._offset;
+    }
+
+    const ttWidth = tooltip.offsetWidth;
+    const ttHeight = tooltip.offsetHeight;
+    const chartWidth = chartRect.width;
+    const chartHeight = chartRect.height;
+
+    // Default: show to the right of cursor
+    let left = mouseX + 16;
+    let top = mouseY - ttHeight / 2;
+
+    // Flip to left side if overflowing right
+    if (left + ttWidth > chartWidth - 10) {
+      left = mouseX - ttWidth - 16;
+    }
+    // Clamp vertically
+    if (top < 4) top = 4;
+    if (top + ttHeight > chartHeight - 4) top = chartHeight - ttHeight - 4;
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+  }
+
+  function hideCustomTooltip() {
+    document.getElementById('custom-tooltip').style.display = 'none';
+  }
+
+  // ══════════════════════════════════════════════════════
+
   function renderChart() {
     let ids = allStationIds;
     if (currentStation !== 'ALL') ids = ids.filter(s => s === currentStation);
@@ -532,7 +733,6 @@ var toggleTheme = () => {
       if (filtered.length === 0) return;
 
       const label = meta.address;
-      // [FIX 1] Use the stable color map instead of a running counter
       const color = palette[stationColorMap[sid] % palette.length];
 
       currentGrades.forEach(grade => {
@@ -554,11 +754,10 @@ var toggleTheme = () => {
           x: xs, y: ys,
           name: label + suffix,
           type: 'scatter',
-          // [FIX 3] lines only, no markers — dense points were obscuring lines
           mode: 'lines',
           line: { color: color, width: 2, dash: GRADE_DASH[grade] },
-          hovertemplate: '%{customdata}<extra></extra>',
-          customdata: hovers
+          // Keep hoverinfo off — we use custom tooltip
+          hoverinfo: 'skip'
         });
       });
     });
@@ -566,8 +765,22 @@ var toggleTheme = () => {
     const rangeMap = {7: 'Last 7 Days', 30: 'Last Month', 90: 'Last 3 Months', 0: 'All Time'};
     const gradeLabel = currentGrades.map(g => GRADE_LABELS[g]).join(', ');
 
-    // [FIX 5] Add midnight dashed vertical lines
     const midnightShapes = getMidnightShapes(cutoff, isDark);
+
+    // Add an invisible scatter trace that covers the full x-range at the
+    // y-midpoint, used only for triggering hover across the entire plot.
+    // We collect all x timestamps from visible traces and all y values
+    // to build the spike-reference trace.
+    const allXs = [];
+    const allYs = [];
+    traces.forEach(t => {
+      t.x.forEach(x => allXs.push(x));
+      t.y.forEach(y => allYs.push(y));
+    });
+
+    // We'll use a "spike" approach: one transparent trace with spikemode
+    // Actually, we use hovermode 'x' with a transparent trace that spans the x range
+    // Better approach: use an invisible trace that produces the crosshair line
 
     const layout = Object.assign({}, layoutBase, {
       title: {
@@ -578,7 +791,13 @@ var toggleTheme = () => {
       xaxis: Object.assign({}, layoutBase.xaxis, {
         type: 'date',
         tickformat: currentDays <= 7 ? '%b %d %H:%M' : '%b %d',
-        hoverformat: '%Y-%m-%d %H:%M'
+        hoverformat: '%Y-%m-%d %H:%M',
+        showspikes: true,
+        spikemode: 'across',
+        spikesnap: 'cursor',
+        spikecolor: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)',
+        spikethickness: 1,
+        spikedash: 'solid'
       }),
       yaxis: Object.assign({}, layoutBase.yaxis, {
         title: {text: 'Price (¢/L)', font: {size: 12}}
@@ -588,24 +807,15 @@ var toggleTheme = () => {
         yanchor: 'top', y: -0.22,
         xanchor: 'center', x: 0.5
       }),
-      // [FIX 2] Sort hover tooltip by value so cheapest is at the bottom
-      hovermode: 'x unified',
+      // Use 'closest' hovermode; our custom tooltip handles the unified view
+      hovermode: 'x',
       hoverdistance: 50,
       shapes: midnightShapes,
       margin: {t: 50, b: 110, l: 60, r: 20}
     });
 
-    // [FIX 2] Sort traces so cheapest station appears at the bottom of
-    // unified hover. Plotly renders hover entries in trace-array order
-    // (first trace = top of tooltip), so we sort descending by median
-    // price: most expensive first (top) → cheapest last (bottom).
-    function median(arr) {
-      if (!arr.length) return 0;
-      const sorted = arr.slice().sort((a, b) => a - b);
-      const mid = Math.floor(sorted.length / 2);
-      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-    }
-    traces.sort((a, b) => median(b.y) - median(a.y));
+    // Store traces globally for the custom hover handler
+    currentTraces = traces;
 
     if (traces.length === 0) {
       Plotly.newPlot('gas-chart', [], Object.assign({}, layout, {
@@ -617,6 +827,12 @@ var toggleTheme = () => {
       }), {displayModeBar: false, responsive: true});
     } else {
       Plotly.newPlot('gas-chart', traces, layout, {displayModeBar: false, responsive: true});
+
+      const chartEl = document.getElementById('gas-chart');
+      chartEl.on('plotly_hover', showCustomTooltip);
+      chartEl.on('plotly_unhover', hideCustomTooltip);
+      // Also hide when mouse leaves the chart entirely
+      chartEl.addEventListener('mouseleave', hideCustomTooltip);
     }
   }
 
