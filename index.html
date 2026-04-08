@@ -480,19 +480,28 @@ var toggleTheme = () => {
     // Start from midnight of the 'from' date, then step day by day
     let d = new Date(from);
     d.setHours(0, 0, 0, 0);
-    // Move to the next midnight if 'from' is exactly midnight or past it within the day
     d.setDate(d.getDate() + 1);
 
+    // Helper: format as local "YYYY-MM-DD 00:00" so Plotly places it
+    // correctly on the axis (which uses local-time Date objects from the data)
+    function localMidnightStr(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const dd = String(date.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + dd + ' 00:00:00';
+    }
+
     while (d <= now) {
+      const xVal = localMidnightStr(d);
       shapes.push({
         type: 'line',
-        x0: d.toISOString(),
-        x1: d.toISOString(),
+        x0: xVal,
+        x1: xVal,
         y0: 0,
         y1: 1,
         yref: 'paper',
         line: {
-          color: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)',
+          color: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
           width: 1,
           dash: 'dot'
         }
@@ -586,15 +595,17 @@ var toggleTheme = () => {
       margin: {t: 50, b: 110, l: 60, r: 20}
     });
 
-    // [FIX 2] Sort traces by the last known y value descending,
-    // so in unified hover the cheapest station ends up at the bottom.
-    // Plotly unified hover renders traces top-to-bottom in trace order,
-    // so highest price trace first → lowest price trace last (bottom).
-    traces.sort((a, b) => {
-      const lastA = a.y[a.y.length - 1] || 0;
-      const lastB = b.y[b.y.length - 1] || 0;
-      return lastB - lastA; // descending: expensive on top, cheap on bottom
-    });
+    // [FIX 2] Sort traces so cheapest station appears at the bottom of
+    // unified hover. Plotly renders hover entries in trace-array order
+    // (first trace = top of tooltip), so we sort descending by median
+    // price: most expensive first (top) → cheapest last (bottom).
+    function median(arr) {
+      if (!arr.length) return 0;
+      const sorted = arr.slice().sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+    traces.sort((a, b) => median(b.y) - median(a.y));
 
     if (traces.length === 0) {
       Plotly.newPlot('gas-chart', [], Object.assign({}, layout, {
