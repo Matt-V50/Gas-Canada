@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gas Price Chart - Waterloo</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛽</text></svg>">
   <script src="https://cdn.plot.ly/plotly-3.3.0.min.js" charset="utf-8"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="./assets/js/charty.js"></script>
@@ -216,7 +217,7 @@
   <div class="container">
     <h1>⛽ Waterloo Gas Prices</h1>
     <span class="sub">Data from GasBuddy</span>
-    <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>  <!-- 加这行 -->
+    <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
   </div>
 </div>
 
@@ -311,21 +312,7 @@ var toggleTheme = () => {
 })();
 
 (function() {
-  // ═══════════════════════════════════════════════════════════
-  //  CONFIG — Only two things to fill in:
-  //
-  //  1. SHEET_BASE: Your published Google Sheet base URL
-  //     (File → Share → Publish to web → entire document → get link,
-  //      then keep everything before the "?" )
-  //
-  //  2. STATION_GID: The gid of your STATION tab
-  //     (click STATION tab → look at URL → #gid=xxxxx)
-  //     First tab is usually 0.
-  //
-  //  That's it. Each station's gid is read from the STATION sheet.
-  // ═══════════════════════════════════════════════════════════
   const SHEET_BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRNWUMa0BdOw0lwFw1oeHrcwKwC7QBO1W_5dez3Zj5IgXGj_YONJgV4UVppatFEOQDTd6sjXaW78EbA/pub?output=csv';
-  // ═══════════════════════════════════════════════════════════
 
   const GRADE_LABELS = {
     'regular_price': 'Regular',
@@ -347,14 +334,14 @@ var toggleTheme = () => {
   let currentStation = 'ALL';
   let currentGrades = ['regular_price'];
 
-  // Helper: build CSV URL from gid
+  // ── [FIX 1] Stable color map: station_id → palette index ──
+  let stationColorMap = {};
+
   function csvUrl(gid) {
     return SHEET_BASE + '&gid=' + gid;
   }
 
-  // ── Load all data ──
   function loadAllData() {
-    // Step 1: load STATION tab to get all station IDs and their gids
     Papa.parse(SHEET_BASE, {
       download: true,
       header: true,
@@ -370,13 +357,17 @@ var toggleTheme = () => {
         });
         allStationIds = Object.keys(stationMeta);
 
+        // [FIX 1] Assign a fixed color index to each station at load time
+        allStationIds.forEach((sid, i) => {
+          stationColorMap[sid] = i;
+        });
+
         let pending = allStationIds.length;
         if (pending === 0) {
           document.getElementById('loading-msg').textContent = 'No stations found in STATION sheet.';
           return;
         }
 
-        // Step 2: load each station's price tab using its gid
         allStationIds.forEach(sid => {
           const gid = stationMeta[sid].gid;
           Papa.parse(csvUrl(gid), {
@@ -409,21 +400,18 @@ var toggleTheme = () => {
     });
   }
 
-  // ── After all data loaded ──
   function onAllLoaded() {
     document.getElementById('loading-msg').style.display = 'none';
     document.getElementById('gas-app').style.display = '';
     buildFilters();
     renderChart();
     new MutationObserver(() => renderChart()).observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['class', 'data-theme']
+      attributes: true,
+      attributeFilter: ['class', 'data-theme']
     });
   }
 
-  // ── Build filter dropdowns ──
   function buildFilters() {
-    // Station select
     const stationSel = document.getElementById('station-select');
     stationSel.innerHTML = '<option value="ALL">All Stations</option>';
     allStationIds.forEach(sid => {
@@ -434,7 +422,6 @@ var toggleTheme = () => {
       stationSel.appendChild(opt);
     });
 
-    // Brand select
     const brands = [...new Set(allStationIds.map(s => stationMeta[s].brand))].filter(Boolean).sort();
     const brandSel = document.getElementById('brand-select');
     brands.forEach(b => {
@@ -444,7 +431,6 @@ var toggleTheme = () => {
       brandSel.appendChild(opt);
     });
 
-    // Events: time range
     document.querySelectorAll('#time-range-btns button').forEach(btn => {
       btn.addEventListener('click', function() {
         document.querySelectorAll('#time-range-btns button').forEach(b => b.classList.remove('active'));
@@ -454,19 +440,16 @@ var toggleTheme = () => {
       });
     });
 
-    // Events: station
     stationSel.addEventListener('change', function() {
       currentStation = this.value;
       renderChart();
     });
 
-    // Events: brand
     brandSel.addEventListener('change', function() {
       currentBrand = this.value;
       renderChart();
     });
 
-    // Events: grade checkboxes
     document.querySelectorAll('#grade-checks input').forEach(cb => {
       cb.addEventListener('change', function() {
         currentGrades = Array.from(document.querySelectorAll('#grade-checks input:checked')).map(c => c.value);
@@ -476,14 +459,54 @@ var toggleTheme = () => {
     });
   }
 
-  // ── Render Plotly chart ──
+  // ── [FIX 5] Helper: compute midnight vertical lines for the visible range ──
+  function getMidnightShapes(cutoff, isDark) {
+    const shapes = [];
+    const now = new Date();
+    const start = cutoff ? new Date(cutoff) : null;
+
+    // Find the earliest data point if no cutoff
+    let earliest = now;
+    if (!start) {
+      allStationIds.forEach(sid => {
+        const rows = stationData[sid];
+        if (rows && rows.length > 0 && rows[0].timestamp < earliest) {
+          earliest = rows[0].timestamp;
+        }
+      });
+    }
+
+    const from = start || earliest;
+    // Start from midnight of the 'from' date, then step day by day
+    let d = new Date(from);
+    d.setHours(0, 0, 0, 0);
+    // Move to the next midnight if 'from' is exactly midnight or past it within the day
+    d.setDate(d.getDate() + 1);
+
+    while (d <= now) {
+      shapes.push({
+        type: 'line',
+        x0: d.toISOString(),
+        x1: d.toISOString(),
+        y0: 0,
+        y1: 1,
+        yref: 'paper',
+        line: {
+          color: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)',
+          width: 1,
+          dash: 'dot'
+        }
+      });
+      d = new Date(d.getTime() + 86400000);
+    }
+    return shapes;
+  }
+
   function renderChart() {
-    // Filter station IDs
     let ids = allStationIds;
     if (currentStation !== 'ALL') ids = ids.filter(s => s === currentStation);
     if (currentBrand !== 'ALL') ids = ids.filter(s => stationMeta[s].brand === currentBrand);
 
-    // Time cutoff
     const cutoff = currentDays > 0
       ? new Date(Date.now() - currentDays * 86400000)
       : null;
@@ -492,7 +515,6 @@ var toggleTheme = () => {
     const layoutBase = charty.getThemedLayoutBase();
     const palette = charty.palette;
     let traces = [];
-    let colorIdx = 0;
 
     ids.forEach(sid => {
       const rows = stationData[sid] || [];
@@ -500,9 +522,9 @@ var toggleTheme = () => {
       const filtered = cutoff ? rows.filter(r => r.timestamp >= cutoff) : rows;
       if (filtered.length === 0) return;
 
-    //   const label = meta.brand + ' — ' + meta.address;
       const label = meta.address;
-      const color = palette[colorIdx % palette.length];
+      // [FIX 1] Use the stable color map instead of a running counter
+      const color = palette[stationColorMap[sid] % palette.length];
 
       currentGrades.forEach(grade => {
         const xs = [], ys = [], hovers = [];
@@ -514,8 +536,6 @@ var toggleTheme = () => {
           hovers.push(
             '<b>' + label + '</b><br>' +
             GRADE_LABELS[grade] + ': ' + v.toFixed(1) + ' ¢/L'
-            // r.timestamp.toLocaleDateString() + ' ' + r.timestamp.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) +
-            // (r.by ? '<br><i>by ' + r.by + '</i>' : '')
           );
         });
         if (xs.length === 0) return;
@@ -525,19 +545,20 @@ var toggleTheme = () => {
           x: xs, y: ys,
           name: label + suffix,
           type: 'scatter',
-          mode: 'lines+markers',
+          // [FIX 3] lines only, no markers — dense points were obscuring lines
+          mode: 'lines',
           line: { color: color, width: 2, dash: GRADE_DASH[grade] },
-          marker: { color: color, size: 5, line: {color: isDark ? '#333' : '#fff', width: 1} },
           hovertemplate: '%{customdata}<extra></extra>',
           customdata: hovers
         });
       });
-      colorIdx++;
     });
 
-    // Range label
     const rangeMap = {7: 'Last 7 Days', 30: 'Last Month', 90: 'Last 3 Months', 0: 'All Time'};
     const gradeLabel = currentGrades.map(g => GRADE_LABELS[g]).join(', ');
+
+    // [FIX 5] Add midnight dashed vertical lines
+    const midnightShapes = getMidnightShapes(cutoff, isDark);
 
     const layout = Object.assign({}, layoutBase, {
       title: {
@@ -558,8 +579,21 @@ var toggleTheme = () => {
         yanchor: 'top', y: -0.22,
         xanchor: 'center', x: 0.5
       }),
+      // [FIX 2] Sort hover tooltip by value so cheapest is at the bottom
       hovermode: 'x unified',
+      hoverdistance: 50,
+      shapes: midnightShapes,
       margin: {t: 50, b: 110, l: 60, r: 20}
+    });
+
+    // [FIX 2] Sort traces by the last known y value descending,
+    // so in unified hover the cheapest station ends up at the bottom.
+    // Plotly unified hover renders traces top-to-bottom in trace order,
+    // so highest price trace first → lowest price trace last (bottom).
+    traces.sort((a, b) => {
+      const lastA = a.y[a.y.length - 1] || 0;
+      const lastB = b.y[b.y.length - 1] || 0;
+      return lastB - lastA; // descending: expensive on top, cheap on bottom
     });
 
     if (traces.length === 0) {
@@ -575,10 +609,8 @@ var toggleTheme = () => {
     }
   }
 
-  // ── Theme change listener ──
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderChart());
 
-  // ── Go ──
   loadAllData();
 })();
 </script>
