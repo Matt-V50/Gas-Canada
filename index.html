@@ -756,8 +756,8 @@ var toggleTheme = () => {
           type: 'scatter',
           mode: 'lines',
           line: { color: color, width: 2, dash: GRADE_DASH[grade] },
-          // Keep hoverinfo off — we use custom tooltip
-          hoverinfo: 'skip'
+          // 'none' still fires plotly_hover but shows no built-in tooltip
+          hoverinfo: 'none'
         });
       });
     });
@@ -766,21 +766,6 @@ var toggleTheme = () => {
     const gradeLabel = currentGrades.map(g => GRADE_LABELS[g]).join(', ');
 
     const midnightShapes = getMidnightShapes(cutoff, isDark);
-
-    // Add an invisible scatter trace that covers the full x-range at the
-    // y-midpoint, used only for triggering hover across the entire plot.
-    // We collect all x timestamps from visible traces and all y values
-    // to build the spike-reference trace.
-    const allXs = [];
-    const allYs = [];
-    traces.forEach(t => {
-      t.x.forEach(x => allXs.push(x));
-      t.y.forEach(y => allYs.push(y));
-    });
-
-    // We'll use a "spike" approach: one transparent trace with spikemode
-    // Actually, we use hovermode 'x' with a transparent trace that spans the x range
-    // Better approach: use an invisible trace that produces the crosshair line
 
     const layout = Object.assign({}, layoutBase, {
       title: {
